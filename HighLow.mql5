@@ -1,0 +1,171 @@
+//必要なパラメータ
+input double Volume = 1.0; //ロット数
+input int SL = 500; //ストップロス
+input int TP = 500; //テイクプロフィット
+input int MAPeriod = 20; //移動平均期間
+
+//直近の注文状況をチェックするグローバル変数
+bool BuyPosition, SellPosition;
+
+int OnInit(){
+    // デモ口座か確認
+    ENUM_ACCOUNT_TRADE_MODE tradeMode = (ENUM_ACCOUNT_TRADE_MODE)AccountInfoInteger(ACCOUNT_TRADE_MODE);
+    if(tradeMode != ACCOUNT_TRADE_MODE_DEMO){
+        MessageBox("このEAはデモ口座でのみ稼働します","口座エラー");
+        return INIT_FAILED;
+    }
+
+    return(INIT_SUCCEEDED);
+    }
+
+void OnDeinit(const int reason){
+
+
+    }
+
+void OnTick(){
+    // 注文に関する構造体をインスタンス化
+    MqlTradeRequest request;    // 発注
+    MqlTradeResult result;      // 結果
+    ZeroMemory(request);        // 構造体の初期化
+
+    //フィルポリシーを設定する。
+    request.type_filling = FillPolicy();
+
+    // SMAの計算
+    double sma[] = CalculateSMA(MAPeriod);
+
+    // 終値情報を格納
+    double close = iClose(NULL,0,0);
+
+    // ポジションの状況確認
+    ulong buyPosNum = 0, sellPosNum = 0;
+    for(int i = 0; i < PositionsTotal(); i++){
+        ulong ticketNum = PositionGetTicket(i);
+        PositionSelectByTicket(ticketNum);
+
+        if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY){
+            buyPosNum = ticketNum;
+            BuyPosition = true;
+        }else if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_SELL){
+            sellPosNum = ticketNum;
+            SellPosition = true;
+        }
+    }
+
+    // 買いの注文
+    if(close > sma[0] && BuyPosition == false){
+        // 売りポジションがあれば決済する。
+        if(sellPosNum > 0){
+            PositionSelectByTicket(sellPosNum);
+
+            request.action = TRADE_ACTION_DEAL;
+            request.type = ORDER_TYPE_BUY;
+            request.symbol = _Symbol;
+            request.position = sellPosNum;
+            request.volume = PositionGetDouble(POSITION_VOLUME);
+            request.price = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+            request.deviation = Deviation;
+            bool sent = OrderSend(request, result);
+        }
+
+        // 買い注文を出す
+        request.action = TRADE_ACTION_DEAL;
+        request.type = ORDER_TYPE_BUY;
+        request.symbol = _Symbol;
+        request.position = 0;
+        request.volume = Volume;
+        request.price = SymbolInfoDouble(_Symbol,SYMBOL_ASK);
+        request.sl = 0;
+        request.tp = 0;
+        request.deviation = Deviation;
+        bool sent = OrderSend(request,result);
+
+        // ストップロスとテイクプロフィットを設定する
+        if(result.retcode == TRADE_RETCODE_PLACED || result.retcode == TRADE_RETCODE_DONE){
+            request.action = TRADE_ACTION_SLTP;
+            request.position = result.order;
+
+            PositionSelectByTicket(result.order);
+            double positionOpenPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+
+            if(SL > 0)
+                request.sl = positionOpenPrice - (SL * _Point);
+            if(TP > 0)
+                request.tp = positionOpenPrice + (TP * _Point);
+
+            if(request.sl > 0 || request.tp > 0)
+                sent = OrderSend(request,result);
+
+            SellPosition = false;
+        }
+    }
+
+    //売り注文
+    if(close <sma[0] && SellPosition== false){
+        // 買いポジションがあれば決済する。
+        if(buyPosNum > 0){
+            PositionSelectByTicket(buyPosNum);
+
+            request.action = TRADE_ACTION_DEAL;
+            request.type = ORDER_TYPE_SELL;
+            request.symbol = _Symbol;
+            request.position = buyPosNum;
+            request.volume = PositionGetDouble(POSITION_VOLUME);
+            request.price = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+            request.deviation = Deviation;
+            bool sent = OrderSend(request, result);
+        }
+
+        // 売り注文を出す
+        request.action = TRADE_ACTION_DEAL;
+        request.type = ORDER_TYPE_SELL;
+        request.symbol = _Symbol;
+        request.position = 0;
+        request.volume = Volume;
+        request.price = SymbolInfoDouble(_Symbol,SYMBOL_BID);
+        request.sl = 0;
+        request.tp = 0;
+        request.deviation = Deviation;
+        bool sent = OrderSend(request,result);
+
+        // ストップロスとテイクプロフィットを設定する
+        if(result.retcode == TRADE_RETCODE_PLACED || result.retcode == TRADE_RETCODE_DONE){
+            request.action = TRADE_ACTION_SLTP;
+            request.position = result.order;
+
+            PositionSelectByTicket(result.order);
+            double positionOpenPrice = PositionGetDouble(POSITION_PRICE_OPEN);
+
+            if(SL > 0)
+                request.sl = positionOpenPrice + (SL * _Point);
+            if(TP > 0)
+                request.tp = positionOpenPrice - (TP * _Point);
+
+            if(request.sl > 0 || request.tp > 0)
+                sent = OrderSend(request,result);
+            BuyPosition = false;
+        }
+    }
+}
+
+//フィルポリシーを返す関数
+ENUM_ORDER_TYPE_FILLING FillPolicy() {
+    long fillType = SymbolInfoInteger(_Symbol, SYMBOL_FILLING_MODE);
+    if (fillType == SYMBOL_FILLING_IOC){
+        return ORDER_FILLING_IOC;
+    } else if (fillType == SYMBOL_FILLING_FOK) {
+        return ORDER_FILLING_FOK;
+    } else {
+        return ORDER_FILLING_RETURN;
+    }
+}
+
+// SMAを計算する関数
+double CalculateSMA(int period) {
+	double aaa[];
+	ArraySetAsSeries(aaa,true); //配列を時系列にセット
+	int smaHandle = iMA(_Symbol,0,period,0,MODE_SMA,PRICE_CLOSE); //単純移動平均のハンドルを取得
+	CopyBuffer(smaHandle,0,0,1,aaa); //単純移動平均の値を配列にコピー
+    return aaa;
+}
