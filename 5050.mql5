@@ -1,0 +1,279 @@
+//+------------------------------------------------------------------+
+//
+//	 Expert Adviser Create by FxLogBook 
+//	 EA作成機による自動生成 
+//	 5050
+//	 For MQL5
+//
+//+------------------------------------------------------------------+
+
+#property copyright "為替じじい"
+#property link "https://www.fxlogbook.jp/"
+#property link "https://ameblo.jp/fx-kamisama" // 開発者ブログ 
+
+
+//+------------------------------------------------------------------+
+//				パラメーター設定
+//+------------------------------------------------------------------+
+
+input string C0="---- Base Setting ----";
+input int MAGIC = 0;
+input int Slippage=3;
+
+
+//取引ロット関連
+input int MaxPosition=1;
+input double BaseLots=0.01;
+input int takeprofit=100;
+input int stoploss=100;
+
+//その他項目 
+double Lots;
+datetime Time;
+int iBars=10;
+
+//+------------------------------------------------------------------+
+//				一般関数
+//+------------------------------------------------------------------+
+
+double AdjustPoint(string Currency)//ポイント調整
+{
+	 long Symbol_Digits=SymbolInfoInteger(Currency,SYMBOL_DIGITS);
+	 double Calculated_Point=0;
+	 if (Symbol_Digits==2 || Symbol_Digits==3)
+	 {
+		 Calculated_Point=0.01;
+	 }
+	 else if (Symbol_Digits==4 || Symbol_Digits==5)
+	 {
+		 Calculated_Point=0.0001;
+	 }
+	 else if (Symbol_Digits==1)
+	 {
+		 Calculated_Point=0.1;
+	 }
+	 else if (Symbol_Digits==0)
+	 {
+		 Calculated_Point=1;
+	 }
+	 return(Calculated_Point);
+}
+
+int AdjustSlippage(string Currency,int Slippage_pips )//スリッページ調整
+{
+	 int Calculated_Slippage=0;
+	 long Symbol_Digits=SymbolInfoInteger(Currency,SYMBOL_DIGITS);
+	 if (Symbol_Digits==2 || Symbol_Digits==3)
+	 {
+		 Calculated_Slippage=Slippage_pips;
+	 }
+	 else if (Symbol_Digits==4 || Symbol_Digits==5)
+	 {
+		 Calculated_Slippage=Slippage_pips*10;
+	 }
+	 return(Calculated_Slippage); 
+}
+
+int LongPosition()//ロングポジション数を取得
+{
+	 int buys=0;
+	 int total=PositionsTotal();
+	 ulong ticket=0;
+	 ulong PositionMagic=0;
+	 long type;
+	 string symbol;
+	 for(int i=total-1;i>=0;i--)
+	 {
+		 ticket=PositionGetTicket(i); 
+		 symbol=PositionGetString(POSITION_SYMBOL); 
+		 PositionMagic=PositionGetInteger(POSITION_MAGIC);
+		 type  =PositionGetInteger(POSITION_TYPE); 
+		 if(symbol==_Symbol && PositionMagic==MAGIC && type==POSITION_TYPE_BUY )
+		 {
+			 buys++;
+		 }
+	 }
+	 return(buys);
+}
+
+int ShortPosition()//ショートポジション数を取得
+{
+	 int sells=0;
+	 int total=PositionsTotal();
+	 ulong ticket=0;
+	 ulong PositionMagic=0;
+	 long type;
+	 string symbol;
+	 for(int i=total-1;i>=0;i--)
+	 {
+		 ticket=PositionGetTicket(i); 
+		 symbol=PositionGetString(POSITION_SYMBOL); 
+		 PositionMagic=PositionGetInteger(POSITION_MAGIC);
+		 type  =PositionGetInteger(POSITION_TYPE); 
+		 if(symbol==_Symbol && PositionMagic==MAGIC && type==POSITION_TYPE_SELL )
+		 {
+			 sells++;
+		 }
+	 }
+	 return(sells);
+}
+
+//+------------------------------------------------------------------+
+//				エントリ関連関数
+//+------------------------------------------------------------------+
+
+//ポジションエントリ関数
+void OpenOrder(int EntryPosition)
+{
+	 //ロットサイズ調整
+	 Lots=BaseLots;//固定ロット
+	 
+	 double Bid, Ask;
+	 MqlTick tick;
+	 SymbolInfoTick(_Symbol, tick);
+	 Bid = tick.bid;
+	 Ask = tick.ask;
+	 double SL=0;
+	 double TP=0;
+	 
+	 //成り行き注文
+	 MqlTradeRequest request={};
+	 MqlTradeResult result={};
+	 request.action=TRADE_ACTION_DEAL; 
+	 request.symbol=_Symbol;  
+	 request.volume=Lots;
+	 
+	 //買い注文
+	 if (EntryPosition==1) 
+	 {
+		 request.type=ORDER_TYPE_BUY; 
+		 request.price=SymbolInfoDouble(Symbol(),SYMBOL_ASK); // 発注価格 
+		 if (stoploss!=0) SL=Ask-stoploss*AdjustPoint(_Symbol);
+		 if (takeprofit!=0) TP=Ask+takeprofit*AdjustPoint(_Symbol);
+	 }
+	 //売り注文
+	 if (EntryPosition==-1)  
+	 {
+		 request.type=ORDER_TYPE_SELL;  // 注文タイプ
+		 request.price=SymbolInfoDouble(Symbol(),SYMBOL_BID); // 発注価格
+		 if(stoploss!=0) SL=Bid+stoploss*AdjustPoint(_Symbol);
+		 if(takeprofit!=0) TP=Bid-takeprofit*AdjustPoint(_Symbol);
+	 }
+	 request.tp = TP;
+	 request.sl = SL;
+	 request.type_filling=ORDER_FILLING_FOK;  
+	 request.comment="5050";  
+	 request.deviation = Slippage; 
+	 request.magic=MAGIC;  
+		 
+	 bool ret=OrderSend(request,result);
+}
+
+//+------------------------------------------------------------------+
+//				エグジット関連関数
+//+------------------------------------------------------------------+
+
+// //ポジションクローズ関数
+// void CloseOrder(int ClosePosition)
+// {
+// 	 MqlTradeRequest request={};
+// 	 MqlTradeResult  result={};
+// 	 int total=PositionsTotal(); 
+// 	 for(int i=total-1;i>=0;i--) 
+// 	 {
+// 		 //ポジション情報を取得 
+// 		 ulong  position_ticket=PositionGetTicket(i); //ポジションチケット
+// 		 string position_symbol=PositionGetString(POSITION_SYMBOL);  //シンボル 
+// 		 ulong  magic=PositionGetInteger(POSITION_MAGIC); //ポジションのMagicNumber
+// 		 double volume=PositionGetDouble(POSITION_VOLUME); // ポジションボリューム
+// 		 ENUM_POSITION_TYPE type=(ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);   // ポジションタイプ
+// 		 double profit=PositionGetDouble(POSITION_PROFIT);
+// 		 if(magic==MAGIC && position_symbol==_Symbol )
+// 		 {
+// 		 //注文のパラメータ設定
+// 		 request.action   =TRADE_ACTION_DEAL;   
+// 		 request.position =position_ticket;   
+// 		 request.symbol   =position_symbol; 
+// 		 request.volume   =volume;  
+// 		 request.deviation=50;
+// 		 request.magic    =MAGIC; 
+// 		 if(type==POSITION_TYPE_BUY && (ClosePosition==1||ClosePosition==0) )
+// 		 {
+// 		 request.price=SymbolInfoDouble(position_symbol,SYMBOL_BID);
+// 		 request.type =ORDER_TYPE_SELL;
+// 		 request.type_filling=ORDER_FILLING_FOK;  
+// 		 request.comment="5050";  
+// 		 bool ret=OrderSend(request,result);
+// 		 }
+// 		 else if(type==POSITION_TYPE_SELL && (ClosePosition==-1 || ClosePosition==0 ))
+// 		 {
+// 		 request.price=SymbolInfoDouble(position_symbol,SYMBOL_ASK);
+// 		 request.type =ORDER_TYPE_BUY;
+// 		 request.type_filling=ORDER_FILLING_FOK;  
+// 		 request.comment="5050";  
+// 		 bool ret=OrderSend(request,result);
+// 		 }
+// 		 }
+// 	 }
+// }
+
+//+------------------------------------------------------------------+
+//				イニシャル処理
+//+------------------------------------------------------------------+
+void OnInit()
+{
+	 //テスターで表示されるインジケータを非表示にする
+	 TesterHideIndicators(true); 
+
+}
+
+//+------------------------------------------------------------------+
+//				ティック毎の処理
+//+------------------------------------------------------------------+
+void OnTick()
+{
+ 
+	 
+	 // ニューバーの発生直後以外は取引しない
+	 datetime TimeArray[1]; 
+	 CopyTime(_Symbol, _Period, 0, 1, TimeArray); 
+	 if(TimeArray[0] == Time) return; 
+	 Time = TimeArray[0];
+
+	 //各種パラメーター取得
+	 int EntryBuy=0;
+	 int EntrySell=0;
+	 int ExitBuy=0;
+	 int ExitSell=0;
+	 
+	 int LongNum=LongPosition();
+	 int ShortNum=ShortPosition();
+	 
+	 //クローズ判定
+	 //買いのクローズロジックは選択されていません
+	 //売りのクローズロジックは選択されていません
+
+	 //エントリ基準取得
+	 int TotalNum=ShortNum+LongNum;
+	 
+	 //エントリ判定
+	 if(TotalNum<MaxPosition)
+	 {
+		 EntryBuy=1;
+	 }
+	 else
+	 if(TotalNum<MaxPosition)
+	 {
+		 EntrySell=1;
+	 }
+
+	 //オープン処理
+	 if(EntryBuy!=0)
+	 {
+		 OpenOrder(1);
+	 }
+	 if(EntrySell!=0) 
+	 {
+		 OpenOrder(-1);
+	 }
+}
