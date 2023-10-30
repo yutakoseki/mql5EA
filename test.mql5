@@ -1,0 +1,21 @@
+// 前日の期間を特定する関数
+int GetYesterdayPeriod(int currentHour, int period)
+{
+    int periodsInDay = 24 / period; // 1日の期間数
+    int periodsToSubtract = currentHour / period; // 現在の時間で何期間前か計算
+
+    int yesterdayPeriod = periodsToSubtract + periodsInDay - 1; // 昨日の期間を計算
+
+    return yesterdayPeriod;
+}
+
+void OnStart()
+{
+    int currentHour = Hour(); // 現在の時間を取得
+    int period = Period(); // チャートの時間足を取得（例: 60は1時間足）
+
+    int yesterdayPeriod = GetYesterdayPeriod(currentHour, period);
+
+    Print("現在の時間: ", currentHour);
+    Print("昨日の期間: ", yesterdayPeriod);
+}
